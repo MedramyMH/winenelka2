@@ -1,0 +1,86 @@
+I'll start by looking at what's inside the project.I read the whole project (it's small: one 48 KB `main.jsx`, the SQL schema, the README and the payment guide). I reviewed it statically and haven't run a build. The UI and the product idea are solid. The backend and the business loop are mostly not built yet, and the schema has a few security holes that need fixing before any real user signs up.
+
+## What the app is today
+
+A Vite + React Arabic RTL demo of a service-provider directory with a marketplace and an announcements page. Supabase is used only for email login. Everything else (providers, products, categories, favorites, settings) lives in React state and disappears on refresh. The ratings, "verified" badges and prices shown are fake seed data.
+
+## 1. Critical: fix before any real user
+
+| Problem | Why it matters |
+|---|---|
+| **Privilege escalation in RLS.** The `profiles` update and insert policies only check `auth.uid() = id`. | Any user can set their own `role='admin'` or `is_verified=true` from the browser console. |
+| **Fake reviews.** Review insert only requires `service_completed = true`, which the client sends. | Anyone can post 5-star reviews, including on themselves. |
+| **No profile creation on signup.** There is no trigger on `auth.users`, and the chosen role (client/provider) is never saved. | A new user has no profile, so nothing downstream works. |
+| **`profiles` readable by everyone, including exact lat/long.** | Providers' precise locations are exposed, and so is any column you add later. |
+| **Contact paywall is not implemented.** `private_contacts` is owner-only and no Edge Function exists to reveal it. | Today the feature your business model depends on does nothing. |
+| **Payment has no backend.** The payment page only shows static checkout URLs. No plans page, no checkout function, no webhook. | There's no way to take money or activate a subscription. |
+| **Fake data shown as real.** Invented providers with ratings and verified badges. | Misleading in production, and a trust and legal risk. |
+| **No password reset, weak password rules, no CAPTCHA or rate limiting.** | Basic auth hygiene is missing. |
+
+## 2. Missing product pieces
+
+**The core loop doesn't exist.** The path is: client finds provider, contacts them, job gets done, client leaves a verified review. Missing for this:
+- Provider dashboard (profile, services, availability, incoming leads)
+- Lead or request flow, plus click-to-call and WhatsApp with tracking
+- Booking or request status (pending, accepted, done)
+- Verified reviews tied to a completed request
+- Real notifications (push, SMS, email)
+- Admin back-office: verification queue, moderation, reports, category approval, payments overview
+- Reporting and blocking of users and listings
+- Tables for favorites, conversations, plans, audit log and reports
+
+**Data and search:**
+- Arabic text search needs normalization (hamza, ة/ه, ى/ي, diacritics).
+- Users will also type French and Arabizi ("plombier", "sabbak", "electricien"), so you need synonyms or aliases.
+- Location is free text. You need a reference table of 24 wilayas → delegations → sectors, and real geo-distance (PostGIS) instead of the hard-coded `distance`.
+- No pagination, so lists will break once there is real data.
+
+**Engineering:**
+- Everything is one giant component with about 40 `useState` calls.
+- No router: no deep links, and the back button leaves the app.
+- No TypeScript, tests, CI, error monitoring or analytics.
+- Images are base64 in memory, and the seed images hotlink Unsplash.
+- No security headers in `netlify.toml`.
+- Seven items in the mobile bottom nav is too many.
+
+## 3. Tunisia-specific gaps
+
+1. **Phone-first auth (+216 OTP).** Many Tunisian users don't use email. Add Google login and phone OTP, keep email as a fallback.
+2. **Arabic + French UI.** The schema already has `name_fr`, but the UI is Arabic only. Tunisian users mix both.
+3. **SEO is your main free acquisition channel.** People search "plombier Tunis" or "سباك صفاقس". A client-rendered SPA with no per-page meta, sitemap or structured data is nearly invisible to Google. Public provider and category pages must be server-rendered or prerendered.
+4. **Low-end Android and expensive data.** Make it a PWA, compress images client-side, and lazy-load.
+5. **Legal.** Check these with a Tunisian lawyer.
+   - Personal data law (Organic Law 2004-63) and INPDP declaration or authorization. Health data and geolocation are sensitive.
+   - Cross-border transfer if Supabase runs in the EU.
+   - Terms and privacy policy in Arabic and French.
+   - Rules on listing and advertising doctors.
+   - The Startup Act label, which gives real tax and banking benefits.
+6. **Payments.** Carrier billing (Orange, Ooredoo, TT) requires commercial contracts that a new startup rarely gets quickly. A more realistic path is one aggregator with a documented API. I'd verify Paymee, Konnect and ClicToPay (plus Flouci) for fees, subscription support and onboarding time. If you ship an Android app, Google Play's billing rules for digital access also need checking.
+7. **Trust.** Tunisian providers often lack online presence, so use a tiered verification system:
+   - Phone verified
+   - CIN verified
+   - Bulletin n°3 (criminal record extract) for home-entry services
+   - Reviews from completed jobs
+
+## 4. Business model risk
+
+Charging clients to see a phone number is the biggest risk in the app. Free competitors like Facebook groups and Tayara already exist, and you have no supply yet, so clients pay before seeing any value. Options to consider:
+- **Providers pay**, either by subscription (visibility and badge) or per lead. Clients stay free.
+- **Freemium:** show the contact after the first request, and charge for boosts or priority placement.
+
+Also launch narrower. Services, marketplace, announcements and health in all 24 wilayas is too much for v1. I'd suggest one city (Grand Tunis or Sfax) and 4-5 home-service categories. The marketplace competes directly with Tayara and should wait. Health is regulated and sensitive, so defer it or limit it to something like home nursing at first.
+
+## 5. Proposed roadmap
+
+| Phase | Scope |
+|---|---|
+| **0. Foundation (1–2 weeks)** | Fix RLS and add the signup trigger. Split into components. Add routing, TypeScript, i18n (ar/fr). Remove fake data. Add security headers, CAPTCHA and password reset. |
+| **1. Real MVP (4–6 weeks)** | Phone/Google auth. Provider dashboard with real persistence. Image upload to Storage with compression. Wilaya/delegation tables. Normalized search. Lead flow (call and WhatsApp with tracking). Verified reviews. Minimal admin panel. Prerendered SEO pages. Legal pages. |
+| **2. Monetization** | Chosen payment aggregator. Edge Functions for checkout and webhook. Plans, renewals and invoices. |
+| **3. Growth** | PWA, then Capacitor Android app. Push notifications. Boosts. Referral. Marketplace revisited. |
+
+## Where I'd start
+
+I'd begin with Phase 0, specifically the SQL security fixes, since that is the riskiest part. For the front end I'd move to Next.js (or Astro) with TypeScript to get SEO, and keep Supabase.
+
+Which of these do you want to tackle first, and is the launch Grand Tunis only or nationwide? Your answers decide how I scope the schema and the roadmap.

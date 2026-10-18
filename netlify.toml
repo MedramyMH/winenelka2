@@ -6,3 +6,37 @@
   from = "/*"
   to = "/index.html"
   status = 200
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    # Security headers
+    X-Frame-Options = "DENY"
+    X-Content-Type-Options = "nosniff"
+    X-XSS-Protection = "1; mode=block"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    Permissions-Policy = "geolocation=(self), camera=(), microphone=(), payment=(self)"
+
+    # HSTS - force HTTPS (31536000 = 1 year)
+    Strict-Transport-Security = "max-age=31536000; includeSubDomains; preload"
+
+    # Content Security Policy
+    # TODO: Adjust based on actual CDN/image hosts used in production
+    # Currently allows Supabase and common image sources
+    Content-Security-Policy = """
+      default-src 'self';
+      script-src 'self' 'unsafe-inline' 'unsafe-eval';
+      style-src 'self' 'unsafe-inline';
+      img-src 'self' data: https: blob:;
+      font-src 'self' data:;
+      connect-src 'self' https://*.supabase.co wss://*.supabase.co;
+      frame-ancestors 'none';
+      base-uri 'self';
+      form-action 'self';
+    """
+
+[[headers]]
+  for = "/assets/*"
+  [headers.values]
+    # Cache static assets for 1 year
+    Cache-Control = "public, max-age=31536000, immutable"
